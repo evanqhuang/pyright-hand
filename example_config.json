@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "pyright-type-checker": {
+      "command": "python",
+      "args": ["-m", "pyright_mcp.main"],
+      "env": {
+        "PYTHONPATH": "/path/to/your/pyright-mcp/src"
+      }
+    }
+  }
+}
