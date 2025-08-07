@@ -1,0 +1,15 @@
+{
+    "mcpServers": {
+        "pyright-mcp": {
+            "command": "docker",
+            "args": [
+                "run",
+                "-i",
+                "-v",
+                "/Users/evanhuang/pyright-hand:/app/code",
+                "--rm",
+                "evanhuang117/pyright-hand-mcp-server"
+            ]
+        }
+    }
+}

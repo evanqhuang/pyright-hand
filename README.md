@@ -34,17 +34,19 @@ Here is an example of how to configure this tool for use with an AI assistant:
 
 ```json
 {
-  "pyright-mcp": {
-    "command": "docker",
-    "args": [
-      "run",
-      "-i",
-      "-v",
-      "/Users/username/your/project:/app/code",
-      "--rm",
-      "evanhuang117/pyright-hand-mcp-server",
-    ]
-  }
+    "mcpServers": {
+        "pyright-mcp": {
+            "command": "docker",
+            "args": [
+                "run",
+                "-i",
+                "-v",
+                "/Users/username/your/project:/app/code",
+                "--rm",
+                "evanhuang117/pyright-hand-mcp-server"
+            ]
+        }
+    }
 }
 ```
 
