@@ -1,6 +1,6 @@
 # Pyright MCP Server
 
-A Model Context Protocol (MCP) server that provides Python type checking capabilities using Pyright. This server enables AI assistants to perform comprehensive type analysis on Python codebases.
+A Model Context Protocol (MCP) server that provides Python type checking capabilities for the entire codebase using Pyright. A problem I frequently run into when using agentic AI is that it constantly spits out code with numerous type safety errors, and no amount of prompting or guiding will make it continually verify the file. This MCP will expose a tool to the agent that will provide Pyright analysis of all files so it can continously check the entire project for type errors. 
 
 ## Features
 
