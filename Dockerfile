@@ -1,10 +1,4 @@
-# Stage 1: Install Pyright using a Node.js image
-# This keeps the final image smaller by not including the Node.js runtime.
-FROM node:20-slim AS pyright-installer
-
-RUN npm install -g pyright
-
-# Stage 2: Build the final Python application image
+# Use a Python image with Node.js installed
 FROM python:3.11-slim
 
 # Set environment variables for Python
@@ -15,9 +9,15 @@ ENV PYTHONUNBUFFERED=1
 WORKDIR /app
 VOLUME /app/code
 
-# Copy the Pyright executable and its dependencies from the installer stage
-COPY --from=pyright-installer /usr/local/bin/pyright /usr/local/bin/pyright
-COPY --from=pyright-installer /usr/local/lib/node_modules /usr/local/lib/node_modules
+# Install Node.js and npm
+RUN apt-get update && apt-get install -y \
+    curl \
+    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Pyright globally
+RUN npm install -g pyright
 
 # Copy and install Python dependencies
 COPY requirements.txt .
