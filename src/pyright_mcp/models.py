@@ -32,9 +32,21 @@ class PyrightSummary(BaseModel):
     timeInSec: float = Field(default=0.0)
 
 
+class PaginationInfo(BaseModel):
+    """Pagination metadata."""
+    
+    current_page: int = Field(default=1)
+    total_pages: int = Field(default=1)
+    page_size: int = Field(default=50)
+    total_diagnostics: int = Field(default=0)
+    has_next_page: bool = Field(default=False)
+    has_previous_page: bool = Field(default=False)
+
+
 class PyrightResult(BaseModel):
     """Complete result from Pyright analysis."""
 
     summary: PyrightSummary
     diagnostics: list[Diagnostic] = Field(default_factory=list)
     version: Optional[str] = None
+    pagination: Optional[PaginationInfo] = None

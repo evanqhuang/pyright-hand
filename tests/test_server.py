@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from pyright_mcp.models import PyrightResult
-from pyright_mcp.server import check_python_types, list_python_files, transform_pyright_output
+from pyright_mcp.server import check_python_types, list_python_files, paginate_diagnostics, transform_pyright_output
 
 
 class TestServerTransform:
@@ -132,7 +132,6 @@ class TestServerTools:
             mock_path.return_value = mock_dir
             
             result = await check_python_types(
-                path="/test/path",
                 ctx=ctx,
                 severity_level="warning"
             )
@@ -144,9 +143,11 @@ class TestServerTools:
             ctx.info.assert_called()
             ctx.report_progress.assert_called()
     
+    @patch("pyright_mcp.server.find_python_files")
     @patch("pyright_mcp.server.execute_pyright")
-    async def test_check_python_types_single_file(self, mock_execute):
+    async def test_check_python_types_single_file(self, mock_execute, mock_find_files):
         """Test checking a single Python file."""
+        mock_find_files.return_value = ["/app/code/app.py"]
         mock_execute.return_value = {
             "generalDiagnostics": [],
             "summary": {"filesAnalyzed": 1}
@@ -161,15 +162,15 @@ class TestServerTools:
             mock_file.is_file.return_value = True
             mock_file.suffix = ".py"
             mock_file.parent = "/test"
+            mock_file.__str__ = MagicMock(return_value="/app/code")
             mock_path.return_value = mock_file
             
             result = await check_python_types(
-                path="/test/file.py",
                 ctx=ctx
             )
             
             assert isinstance(result, PyrightResult)
-            mock_execute.assert_called_once_with("/test", "warning")
+            mock_execute.assert_called_once_with("/app/code", "warning")
     
     async def test_check_python_types_not_found(self):
         """Test error when path doesn't exist."""
@@ -183,25 +184,6 @@ class TestServerTools:
             
             with pytest.raises(FileNotFoundError):
                 await check_python_types(
-                    path="/nonexistent",
-                    ctx=ctx
-                )
-    
-    async def test_check_python_types_not_python_file(self):
-        """Test error for non-Python file."""
-        ctx = AsyncMock()
-        
-        with patch("pyright_mcp.server.Path") as mock_path:
-            mock_file = MagicMock()
-            mock_file.resolve.return_value = mock_file
-            mock_file.exists.return_value = True
-            mock_file.is_file.return_value = True
-            mock_file.suffix = ".txt"
-            mock_path.return_value = mock_file
-            
-            with pytest.raises(ValueError, match="Not a Python file"):
-                await check_python_types(
-                    path="/test/file.txt",
                     ctx=ctx
                 )
     
@@ -220,34 +202,176 @@ class TestServerTools:
             mock_dir.resolve.return_value = mock_dir
             mock_dir.exists.return_value = True
             mock_dir.is_file.return_value = False
-            mock_dir.__str__.return_value = "/test/path"  # Add string representation
+            mock_dir.__str__ = MagicMock(return_value="/app/code")  # Make sure this returns the expected path
             mock_path.return_value = mock_dir
             
             files = await list_python_files(
-                path="/test",
                 ctx=ctx
             )
             
             assert len(files) == 2
             assert "/test/file1.py" in files
-            mock_find_files.assert_called_once_with(str(mock_dir), None)
+            mock_find_files.assert_called_once_with("/app/code", None)
     
-    async def test_list_python_files_single_file(self):
-        """Test listing single Python file."""
-        ctx = AsyncMock()
+
+
+class TestServerPagination:
+    """Test pagination functionality."""
+
+    def test_paginate_diagnostics_basic(self):
+        """Test basic pagination of diagnostics."""
+        from pyright_mcp.models import Diagnostic, DiagnosticRange
         
-        with patch("pyright_mcp.server.Path") as mock_path:
-            mock_file = MagicMock()
-            mock_file.resolve.return_value = mock_file
-            mock_file.exists.return_value = True
-            mock_file.is_file.return_value = True
-            mock_file.suffix = ".py"
-            mock_file.__str__.return_value = "/test/file.py"
-            mock_path.return_value = mock_file
-            
-            files = await list_python_files(
-                path="/test/file.py",
-                ctx=ctx
+        # Create sample diagnostics
+        diagnostics = []
+        for i in range(25):
+            diagnostic = Diagnostic(
+                file=f"/test/file{i}.py",
+                severity="error",
+                message=f"Error {i}",
+                rule="testRule",
+                range=DiagnosticRange(
+                    start={"line": i, "character": 0},
+                    end={"line": i, "character": 10}
+                )
             )
-            
-            assert files == ["/test/file.py"]
+            diagnostics.append(diagnostic)
+        
+        # Test first page
+        paginated, pagination = paginate_diagnostics(diagnostics, page=1, page_size=10)
+        
+        assert len(paginated) == 10
+        assert pagination.current_page == 1
+        assert pagination.total_pages == 3
+        assert pagination.page_size == 10
+        assert pagination.total_diagnostics == 25
+        assert pagination.has_next_page is True
+        assert pagination.has_previous_page is False
+        assert paginated[0].file == "/test/file0.py"
+        assert paginated[9].file == "/test/file9.py"
+
+    def test_paginate_diagnostics_middle_page(self):
+        """Test middle page pagination."""
+        from pyright_mcp.models import Diagnostic, DiagnosticRange
+        
+        diagnostics = []
+        for i in range(25):
+            diagnostic = Diagnostic(
+                file=f"/test/file{i}.py",
+                severity="error", 
+                message=f"Error {i}",
+                rule="testRule",
+                range=DiagnosticRange(
+                    start={"line": i, "character": 0},
+                    end={"line": i, "character": 10}
+                )
+            )
+            diagnostics.append(diagnostic)
+        
+        # Test middle page
+        paginated, pagination = paginate_diagnostics(diagnostics, page=2, page_size=10)
+        
+        assert len(paginated) == 10
+        assert pagination.current_page == 2
+        assert pagination.total_pages == 3
+        assert pagination.has_next_page is True
+        assert pagination.has_previous_page is True
+        assert paginated[0].file == "/test/file10.py"
+        assert paginated[9].file == "/test/file19.py"
+
+    def test_paginate_diagnostics_last_page(self):
+        """Test last page with partial results."""
+        from pyright_mcp.models import Diagnostic, DiagnosticRange
+        
+        diagnostics = []
+        for i in range(25):
+            diagnostic = Diagnostic(
+                file=f"/test/file{i}.py",
+                severity="error",
+                message=f"Error {i}",
+                rule="testRule",
+                range=DiagnosticRange(
+                    start={"line": i, "character": 0},
+                    end={"line": i, "character": 10}
+                )
+            )
+            diagnostics.append(diagnostic)
+        
+        # Test last page
+        paginated, pagination = paginate_diagnostics(diagnostics, page=3, page_size=10)
+        
+        assert len(paginated) == 5  # Only 5 items on last page
+        assert pagination.current_page == 3
+        assert pagination.total_pages == 3
+        assert pagination.has_next_page is False
+        assert pagination.has_previous_page is True
+        assert paginated[0].file == "/test/file20.py"
+        assert paginated[4].file == "/test/file24.py"
+
+    def test_paginate_diagnostics_empty(self):
+        """Test pagination with empty diagnostics list."""
+        diagnostics = []
+        
+        paginated, pagination = paginate_diagnostics(diagnostics, page=1, page_size=10)
+        
+        assert len(paginated) == 0
+        assert pagination.current_page == 1
+        assert pagination.total_pages == 1
+        assert pagination.total_diagnostics == 0
+        assert pagination.has_next_page is False
+        assert pagination.has_previous_page is False
+
+    def test_transform_pyright_output_with_pagination(self):
+        """Test transform function with pagination."""
+        raw_output = {
+            "version": "1.1.300",
+            "generalDiagnostics": [
+                {
+                    "file": "/test/file1.py",
+                    "severity": "error",
+                    "message": "Error 1",
+                    "rule": "rule1",
+                    "range": {
+                        "start": {"line": 1, "character": 0},
+                        "end": {"line": 1, "character": 10}
+                    }
+                },
+                {
+                    "file": "/test/file2.py", 
+                    "severity": "warning",
+                    "message": "Warning 1",
+                    "rule": "rule2",
+                    "range": {
+                        "start": {"line": 2, "character": 0},
+                        "end": {"line": 2, "character": 10}
+                    }
+                },
+                {
+                    "file": "/test/file3.py",
+                    "severity": "error", 
+                    "message": "Error 2",
+                    "rule": "rule3",
+                    "range": {
+                        "start": {"line": 3, "character": 0},
+                        "end": {"line": 3, "character": 10}
+                    }
+                }
+            ],
+            "summary": {
+                "filesAnalyzed": 3,
+                "errorCount": 2,
+                "warningCount": 1,
+                "informationCount": 0,
+                "timeInSec": 1.0
+            }
+        }
+        
+        result = transform_pyright_output(raw_output, page=1, page_size=2)
+        
+        assert len(result.diagnostics) == 2  # Page size limit
+        assert result.pagination is not None
+        assert result.pagination.current_page == 1
+        assert result.pagination.total_pages == 2
+        assert result.pagination.total_diagnostics == 3
+        assert result.pagination.has_next_page is True
+        assert result.pagination.has_previous_page is False

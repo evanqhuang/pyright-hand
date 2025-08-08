@@ -7,7 +7,7 @@ from typing import Optional
 from mcp.server.fastmcp import Context, FastMCP
 
 from .file_finder import find_python_files
-from .models import Diagnostic, DiagnosticRange, PyrightResult, PyrightSummary
+from .models import Diagnostic, DiagnosticRange, PaginationInfo, PyrightResult, PyrightSummary
 from .pyright_runner import execute_pyright
 
 # Configure logging
@@ -18,15 +18,57 @@ logger = logging.getLogger(__name__)
 mcp = FastMCP("Pyright-hand Python Checker")
 
 
-def transform_pyright_output(raw_output: dict) -> PyrightResult:
+def paginate_diagnostics(
+    diagnostics: list[Diagnostic], 
+    page: int, 
+    page_size: int
+) -> tuple[list[Diagnostic], PaginationInfo]:
+    """
+    Paginate diagnostics and return page info.
+    
+    Args:
+        diagnostics: Full list of diagnostics
+        page: Page number (1-based)
+        page_size: Number of items per page
+        
+    Returns:
+        Tuple of (paginated_diagnostics, pagination_info)
+    """
+    total_diagnostics = len(diagnostics)
+    total_pages = max(1, (total_diagnostics + page_size - 1) // page_size)
+    
+    # Validate page number
+    page = max(1, min(page, total_pages))
+    
+    # Calculate pagination
+    start_idx = (page - 1) * page_size
+    end_idx = min(start_idx + page_size, total_diagnostics)
+    
+    paginated_diagnostics = diagnostics[start_idx:end_idx]
+    
+    pagination_info = PaginationInfo(
+        current_page=page,
+        total_pages=total_pages,
+        page_size=page_size,
+        total_diagnostics=total_diagnostics,
+        has_next_page=page < total_pages,
+        has_previous_page=page > 1
+    )
+    
+    return paginated_diagnostics, pagination_info
+
+
+def transform_pyright_output(raw_output: dict, page: int = 1, page_size: int = 50) -> PyrightResult:
     """
     Transform raw Pyright JSON output to our structured format.
 
     Args:
         raw_output: Raw JSON from Pyright
+        page: Page number for pagination
+        page_size: Number of diagnostics per page
 
     Returns:
-        Structured PyrightResult
+        Structured PyrightResult with pagination
     """
     # Extract summary
     raw_summary = raw_output.get("summary", {})
@@ -63,10 +105,14 @@ def transform_pyright_output(raw_output: dict) -> PyrightResult:
             )
         )
 
+    # Apply pagination
+    paginated_diagnostics, pagination_info = paginate_diagnostics(diagnostics, page, page_size)
+    
     return PyrightResult(
         summary=summary,
-        diagnostics=diagnostics,
+        diagnostics=paginated_diagnostics,
         version=raw_output.get("version"),
+        pagination=pagination_info,
     )
 
 
@@ -75,6 +121,8 @@ async def check_python_types(
     ctx: Context,
     severity_level: str = "warning",
     ignore_patterns: Optional[list[str]] = None,
+    page: int = 1,
+    page_size: int = 50,
 ) -> PyrightResult:
     """
     Run Pyright type checking on Python files in /app/code.
@@ -86,10 +134,12 @@ async def check_python_types(
     Args:
         severity_level: Minimum severity to report (error, warning, information)
         ignore_patterns: Additional glob patterns to ignore
+        page: Page number for pagination (starts at 1)
+        page_size: Number of diagnostics per page (default 50)
         ctx: MCP context for progress reporting
 
     Returns:
-        Structured type checking results with diagnostics
+        Structured type checking results with diagnostics (paginated)
     """
     try:
         # Validate path
@@ -113,15 +163,20 @@ async def check_python_types(
 
         # Transform results
         await ctx.report_progress(0.8, 1.0, "Processing results...")
-        result = transform_pyright_output(raw_results)
+        result = transform_pyright_output(raw_results, page, page_size)
 
         # Report summary
         summary = result.summary
+        pagination = result.pagination
+        pagination_msg = ""
+        if pagination:
+            pagination_msg = f" - Page {pagination.current_page}/{pagination.total_pages} ({len(result.diagnostics)} of {pagination.total_diagnostics} diagnostics)"
+        
         await ctx.info(
             f"Analysis complete: {summary.errorCount} errors, "
             f"{summary.warningCount} warnings, "
             f"{summary.informationCount} info messages "
-            f"({summary.filesAnalyzed} files in {summary.timeInSec:.2f}s)"
+            f"({summary.filesAnalyzed} files in {summary.timeInSec:.2f}s){pagination_msg}"
         )
 
         await ctx.report_progress(1.0, 1.0, "Complete")
