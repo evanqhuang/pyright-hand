@@ -1,6 +1,6 @@
 [project]
 name = "pyright-mcp"
-version = "1.0.2"
+version = "1.1.0"
 description = "MCP server for Python type checking with Pyright"
 readme = "README.md"
 requires-python = ">=3.10"

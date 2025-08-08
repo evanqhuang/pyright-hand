@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.1.0 (2025-08-08)
+
+### Features
+
+- Add pagination support to handle large diagnostic responses
+  ([`2c514d1`](https://github.com/evanqhuang/pyright-hand/commit/2c514d189107e60944235d177f1f57a3eb90ffbe))
+
+
 ## v1.0.2 (2025-08-07)
 
 ### Bug Fixes
